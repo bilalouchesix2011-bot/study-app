@@ -1,0 +1,4 @@
+{
+  "crons": [],
+  "buildCommand": "prisma generate && next build"
+}
