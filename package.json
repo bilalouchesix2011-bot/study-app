@@ -1,0 +1,36 @@
+{
+  "name": "sp_next_tmp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --no-turbo",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@next-auth/prisma-adapter": "^1.0.7",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "@supabase/supabase-js": "^2.105.4",
+    "dotenv": "^17.4.2",
+    "next": "16.2.6",
+    "next-auth": "^4.24.14",
+    "pg": "^8.20.0",
+    "prisma": "^7.8.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.6",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  },
+  "packageManager": "pnpm@11.1.1+sha512.d1fdf5f73c617b64fa1a56a81c3c8dfe0e966e33a6010aa256b517ae77be21d93e05affc0de1a83b0e4f29d569f68b446ae8f068cd7247c0bb3df0fb4d7bdf9a"
+}

@@ -1,0 +1,26 @@
+# Dependencies
+node_modules
+
+# Next.js
+.next
+out
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env (NE JAMAIS COMMITTER)
+.env
+.env.*.local
+.env.local
+
+# Prisma (on commit généralement les migrations)
+# prisma/migrations
+
+# OS / Editors
+.DS_Store
+Thumbs.db
+.idea
+.vscode

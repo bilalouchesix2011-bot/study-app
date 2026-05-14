@@ -1,0 +1,391 @@
+// Prisma schema — StudyPulse
+// DB: PostgreSQL (Supabase) — ORM: Prisma
+//
+// Connexion Supabase (dans .env.local) :
+// - DATABASE_URL : URL "pooler" (transaction pooler) pour l'app
+// - DIRECT_URL   : URL directe (non poolée) pour les migrations/prisma studio
+//
+// Exemple :
+// DATABASE_URL="postgresql://USER:PASSWORD@HOST:6543/postgres?pgbouncer=true&connection_limit=1"
+// DIRECT_URL="postgresql://USER:PASSWORD@HOST:5432/postgres"
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+// -------------------------
+// Enums
+// -------------------------
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum AiProvider {
+  CLAUDE
+}
+
+enum GuildMemberRole {
+  OWNER
+  OFFICER
+  MEMBER
+}
+
+enum StripeSubscriptionStatus {
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+  PAUSED
+}
+
+// -------------------------
+// NextAuth (Prisma Adapter)
+// -------------------------
+
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String?
+  email     String?  @unique
+  image     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Autorisation
+  role UserRole @default(USER)
+
+  // Gamification (leaderboard)
+  // XP total dénormalisé pour éviter des agrégations coûteuses.
+  // (Recommandation côté app : faire les increments en transaction)
+  xpTotal BigInt @default(0) @db.BigInt
+
+  // Premium (zéro pay-to-win : cosmétique + confort + quotas IA uniquement)
+  isPremium Boolean @default(false)
+  premiumSince DateTime?
+
+  // Cosmétique (ex: couleurs VIP)
+  profileThemeColor String? // ex: "#7C3AED"
+
+  // Stripe
+  stripeCustomerId     String? @unique
+  stripeSubscriptionId String? @unique
+  stripePriceId        String?
+  stripeStatus         StripeSubscriptionStatus?
+  stripeCurrentPeriodEnd DateTime?
+
+  // Relations NextAuth
+  accounts Account[]
+  sessions Session[]
+
+  // Study
+  decks      Deck[]
+  flashcards Flashcard[] @relation("UserFlashcards")
+
+  // Admin content
+  adminQuizzes AdminQuiz[] @relation("AdminQuizCreatedBy")
+
+  // Social
+  friendshipsRequested Friendship[] @relation("FriendshipRequestedBy")
+  friendshipsAsUser1   Friendship[] @relation("FriendshipUser1")
+  friendshipsAsUser2   Friendship[] @relation("FriendshipUser2")
+  privateMessagesSent  PrivateMessage[] @relation("PrivateMessageSender")
+
+  // Guilds
+  guildMemberships GuildMembership[]
+  guildsOwned       Guild[] @relation("GuildOwner")
+
+  // AI
+  aiQuota         AiQuota?
+  aiGenerationLog AiGenerationLog[]
+
+  @@index([xpTotal])
+  @@index([role])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(uuid()) @db.Uuid
+  userId            String  @db.Uuid
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(uuid()) @db.Uuid
+  sessionToken String   @unique
+  userId       String   @db.Uuid
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// -------------------------
+// Apprentissage (Decks / Flashcards + SM-2)
+// -------------------------
+
+model Deck {
+  id          String   @id @default(uuid()) @db.Uuid
+  ownerId     String   @db.Uuid
+  title       String
+  description String?
+  isPublic    Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner     User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  flashcards Flashcard[]
+
+  // AI generated
+  aiGenerationLogs AiGenerationLog[]
+
+  @@index([ownerId])
+  @@map("decks")
+}
+
+model Flashcard {
+  id     String @id @default(uuid()) @db.Uuid
+  deckId String @db.Uuid
+
+  // Optionnel : garder aussi ownerId pour requêtes rapides/autorisation sans join
+  ownerId String @db.Uuid
+
+  front String
+  back  String
+
+  // SM-2
+  interval       Int      @default(0) // en jours
+  repetition     Int      @default(0)
+  easeFactor     Float    @default(2.5)
+  nextReviewDate DateTime @default(now())
+  lastReviewedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deck  Deck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  owner User @relation("UserFlashcards", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([deckId])
+  @@index([ownerId])
+  @@index([nextReviewDate])
+  @@map("flashcards")
+}
+
+// -------------------------
+// Quiz Admin (créés manuellement par l'admin)
+// -------------------------
+
+model AdminQuiz {
+  id          String   @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+  isPublished Boolean  @default(true)
+  xpReward    Int      @default(0)
+
+  createdById String? @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User? @relation("AdminQuizCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  questions AdminQuestion[]
+
+  @@index([createdAt])
+  @@map("admin_quizzes")
+}
+
+model AdminQuestion {
+  id      String @id @default(uuid()) @db.Uuid
+  quizId  String @db.Uuid
+  prompt  String
+  order   Int
+
+  quiz     AdminQuiz    @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  answers  AdminAnswer[]
+
+  @@unique([quizId, order])
+  @@index([quizId])
+  @@map("admin_questions")
+}
+
+model AdminAnswer {
+  id         String @id @default(uuid()) @db.Uuid
+  questionId String @db.Uuid
+  text       String
+  order      Int
+  isCorrect  Boolean @default(false)
+
+  question AdminQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, order])
+  @@index([questionId])
+  @@map("admin_answers")
+}
+
+// -------------------------
+// Social (amis + DM + guildes)
+// -------------------------
+
+model Friendship {
+  id String @id @default(uuid()) @db.Uuid
+
+  // IMPORTANT: côté application, toujours trier:
+  // userId1 = min(userA, userB), userId2 = max(userA, userB)
+  userId1 String @db.Uuid
+  userId2 String @db.Uuid
+
+  status FriendshipStatus @default(PENDING)
+
+  requestedById String @db.Uuid
+  createdAt DateTime @default(now())
+  respondedAt DateTime?
+
+  user1       User @relation("FriendshipUser1", fields: [userId1], references: [id], onDelete: Cascade)
+  user2       User @relation("FriendshipUser2", fields: [userId2], references: [id], onDelete: Cascade)
+  requestedBy User @relation("FriendshipRequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+
+  messages PrivateMessage[]
+
+  @@unique([userId1, userId2])
+  @@index([status])
+  @@index([requestedById])
+  @@map("friendships")
+}
+
+model PrivateMessage {
+  id String @id @default(uuid()) @db.Uuid
+
+  friendshipId String @db.Uuid
+  senderId     String @db.Uuid
+
+  content String
+  createdAt DateTime @default(now())
+  readAt DateTime?
+
+  friendship Friendship @relation(fields: [friendshipId], references: [id], onDelete: Cascade)
+  sender     User       @relation("PrivateMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([friendshipId, createdAt])
+  @@index([senderId])
+  @@map("private_messages")
+}
+
+model Guild {
+  id   String @id @default(uuid()) @db.Uuid
+  name String
+
+  ownerId String @db.Uuid
+  owner   User   @relation("GuildOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  // XP total de guilde (BigInt demandé)
+  xpTotal BigInt @default(0) @db.BigInt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members GuildMembership[]
+
+  @@index([xpTotal])
+  @@index([ownerId])
+  @@map("guilds")
+}
+
+model GuildMembership {
+  guildId String @db.Uuid
+  userId  String @db.Uuid
+
+  role GuildMemberRole @default(MEMBER)
+  joinedAt DateTime @default(now())
+
+  guild Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([guildId, userId])
+  @@index([userId])
+  @@map("guild_memberships")
+}
+
+// -------------------------
+// IA : quotas + logs
+// -------------------------
+
+model AiQuota {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+
+  // Exemple: quotas mensuels
+  periodStart DateTime
+  periodEnd   DateTime
+
+  monthlyLimit Int @default(10) // valeur "FREE" typique ; peut être montée pour premium
+  monthlyUsed  Int @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ai_quotas")
+}
+
+model AiGenerationLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @db.Uuid
+  deckId String? @db.Uuid
+
+  provider AiProvider @default(CLAUDE)
+
+  // Traçabilité + anti-abus
+  inputChars   Int?
+  outputCards  Int?
+  tokensUsed   Int?
+  costCents    Int?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deck Deck? @relation(fields: [deckId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([deckId])
+  @@map("ai_generation_logs")
+}
