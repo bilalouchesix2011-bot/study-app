@@ -3,6 +3,15 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+type AdminUsersRow = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  role: "USER" | "ADMIN";
+  isPremium: boolean;
+  xpTotal: bigint;
+};
+
 export async function GET() {
   const session = await getServerSession(authOptions);
 
@@ -26,10 +35,9 @@ export async function GET() {
   });
 
   return NextResponse.json(
-    users.map((u) => ({
+    users.map((u: AdminUsersRow) => ({
       ...u,
       xpTotal: typeof u.xpTotal === "bigint" ? Number(u.xpTotal) : Number(u.xpTotal ?? 0),
     })),
   );
 }
-
