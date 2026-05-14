@@ -12,7 +12,7 @@ function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
 }
 
-export async function PATCH(req: Request, ctx: { params: { id: string } }) {
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
@@ -22,7 +22,8 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
     return NextResponse.json({ error: "Accès interdit" }, { status: 403 });
   }
 
-  const { id } = ctx.params;
+  // Next.js récent: `params` est un Promise dans les Route Handlers.
+  const { id } = await ctx.params;
   if (!id) return badRequest("ID manquant");
 
   let body: PatchBody;
